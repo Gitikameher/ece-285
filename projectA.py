@@ -8,23 +8,14 @@ Your names here:
 import numpy as np
 from .assignment6 import *
 
-def cross_correlation(x, nu, boundary='periodical'):
-    xconv = np.zeros(x.shape)
-    s1 = int((nu.shape[0] - 1) / 2)
-    s2 = int((nu.shape[1] - 1) / 2)
-    for k in range(-s1, s1+1):
-        for l in range(-s2, s2+1):
-            xconv+=shift(x, k, l, boundary=boundary)*nu[k+s1,l+s2]
-    return xconv
-
 class Identity(LinearOperator):
     def __init__(self, ishape):
         self.shape=ishape
         oshape=ishape
         LinearOperator.__init__(self, ishape, oshape)
+        self.H= np.ones(self.ishape, dtype=int)
                 
     def __call__(self, x):
-        self.H= np.ones(self.ishape, dtype=int)
         return convolvefft(x, self.H)
     
     def adjoint(self, x):
@@ -62,13 +53,13 @@ class RandomMasking(LinearOperator):
         self.total= np.prod(np.array(shape))
         self.no_zeros= p*self.total
         if len(shape)==2:
-            self.shape=np.expand_dims(shape, axis=2)
+            self.shape=(shape[0], shape[1], 1)
         else:
             self.shape=shape
-        self.H=np.ones(shape)
+        self.H=np.ones(self.shape)
         counter=0
         while counter <= self.no_zeros:
-            (i,j,k)=(np.random.randint(1,shape[0]+1),np.random.randint(1,shape[1]+1),np.random.randint(1,shape[2]+1))
+            (i,j,k)=(np.random.randint(1,self.shape[0]+1),np.random.randint(1,self.shape[1]+1),np.random.randint(1,self.shape[2]+1))
             if self.H[i-1,j-1,k-1]==1:
                 counter+=1
                 self.H[i-1,j-1,k-1]=0
@@ -77,12 +68,10 @@ class RandomMasking(LinearOperator):
         return self.H*x
         
     def adjoint(self, x):
-        fft_H= np.fft.fft2(self.H, axes=(0,1))
-        return np.real(np.fft.ifft2(cross_correlation(np.fft.fft2(x, axes=(0,1)), np.conjugate(fft_H)),axes=(0,1)))
+        return self.H*x
     
     def gram(self, x):
-        fft_H= np.fft.fft2(self.H, axes=(0,1))
-        return np.real(np.fft.ifft2(cross_correlation(np.fft.fft2(x, axes=(0,1)), np.conjugate(fft_H)*fft_H),axes=(0,1)))
+        return self.H*self.H*x
     
     def gram_resolvent(self, x, tau):
         return cg(lambda z: z + tau * self.gram(z), x)
@@ -107,8 +96,9 @@ def heat_diffusion(y, m, gamma, scheme='continuous'):
     return x
         
 def norm2(v, keepdims=True):
-    a= (np.absolute(v))**2
-    if len(v.shape)==3 and v.shape[2]==3:
+    norm= lambda v1, v2: v1**2 + v2**2
+    a= norm(v[:,:, 0, :], v[:,:,1, :])
+    if len(a.shape)==3 and a.shape[2]==3:
         a=np.sum(a,axis=-1)
         if keepdims==True:
             a=np.reshape(a, (a.shape[0],a.shape[1],1,1 ))
@@ -120,8 +110,8 @@ def norm2(v, keepdims=True):
 def anisotropic_step(x, z, gamma, g, nusig, return_conductivity=False): 
     x_conv = convolve(x, nusig)
     temp=grad(x_conv)
-    alpha = g(np.stack((norm2(temp[:,:,0, :]), norm2(temp[:,:,1, :])), axis=2))
-    x = z + gamma * div(alpha.reshape(alpha.shape[0],alpha.shape[1],alpha.shape[2],alpha.shape[3]) * grad(z))
+    alpha = g(norm2(temp), 1)
+    x = z + gamma * div(alpha * grad(z))
     if return_conductivity:
         return x, alpha
     else:
@@ -129,12 +119,8 @@ def anisotropic_step(x, z, gamma, g, nusig, return_conductivity=False):
     
 def anisotropic_diffusion(y, m, gamma, g=None, return_conductivity=False, scheme='explicit'):
     x = y
-    if len(y.shape)==3:
-        C=3
-    else:
-        C=1
     if g==None:
-        g= lambda u: 10 / (10 + 255*255*u/(np.sqrt(C)))
+        g= lambda u,C: 10 / (10 + 255*255*u/(np.sqrt(C)))
     nusig = kernel('gaussian', tau=0.2, s1=1, s2=1)
     for k in range(m):
         if scheme=='explicit':
