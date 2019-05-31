@@ -124,6 +124,8 @@ def anisotropic_step(x, z, gamma, g, nusig, return_conductivity=False):
         return x
     
 def anisotropic_diffusion(y, m, gamma, g=None, return_conductivity=False, scheme='explicit'):
+    if scheme=='implicit':
+        return_conductivity=False
     x = y
     if (len(x.shape)==3):
         C=3
@@ -134,9 +136,12 @@ def anisotropic_diffusion(y, m, gamma, g=None, return_conductivity=False, scheme
     nusig = kernel('gaussian', tau=0.2, s1=1, s2=1)
     for k in range(m):
         if scheme=='explicit':
-            x, alpha= anisotropic_step(x, x, gamma, g, nusig, return_conductivity=return_conductivity)
+            if return_conductivity:
+                x, alpha= anisotropic_step(x, x, gamma, g, nusig, return_conductivity=return_conductivity)
+            else:
+                x = anisotropic_step(x, x, gamma, g, nusig, return_conductivity=return_conductivity)
         elif scheme=='implicit':
-            x, alpha= cg(lambda z: rad_step(x, z, -gamma, g, nusig, return_conductivity=return_conductivity), x)
+            x= cg(lambda z: anisotropic_step(x, z, -gamma, g, nusig, return_conductivity=return_conductivity), x)
     if return_conductivity:
         return x, alpha
     else:
