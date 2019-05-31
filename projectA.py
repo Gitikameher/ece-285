@@ -96,8 +96,15 @@ def heat_diffusion(y, m, gamma, scheme='continuous'):
     return x
         
 def norm2(v, keepdims=True):
+    if(len(v.shape)==3):
+        v=np.reshape(v, (v.shape[0],v.shape[1],1, v.shape[2]))
+    elif (len(v.shape)==1):
+        v=np.reshape(v, (v.shape[0],v.shape[1],1))
     norm= lambda v1, v2: v1**2 + v2**2
-    a= norm(v[:,:, 0, :], v[:,:,1, :])
+    if(len(v.shape)==4):
+        a= norm(v[:,:, 0, :], v[:,:,1, :])
+    else:
+        a= norm(v[:,:, 0], v[:,:,0])/2
     if len(a.shape)==3 and a.shape[2]==3:
         a=np.sum(a,axis=-1)
         if keepdims==True:
@@ -109,8 +116,7 @@ def norm2(v, keepdims=True):
 
 def anisotropic_step(x, z, gamma, g, nusig, return_conductivity=False): 
     x_conv = convolve(x, nusig)
-    temp=grad(x_conv)
-    alpha = g(norm2(temp), 1)
+    alpha = g(norm2(grad(x_conv)))
     x = z + gamma * div(alpha * grad(z))
     if return_conductivity:
         return x, alpha
@@ -119,8 +125,12 @@ def anisotropic_step(x, z, gamma, g, nusig, return_conductivity=False):
     
 def anisotropic_diffusion(y, m, gamma, g=None, return_conductivity=False, scheme='explicit'):
     x = y
+    if (len(x.shape)==3):
+        C=3
+    else:
+        C=1
     if g==None:
-        g= lambda u,C: 10 / (10 + 255*255*u/(np.sqrt(C)))
+        g= lambda u: 10 / (10 + 255*255*u/(np.sqrt(C)))
     nusig = kernel('gaussian', tau=0.2, s1=1, s2=1)
     for k in range(m):
         if scheme=='explicit':
