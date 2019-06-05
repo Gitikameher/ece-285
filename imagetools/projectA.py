@@ -122,27 +122,111 @@ def anisotropic_step(x, z, gamma, g, nusig, return_conductivity=False):
         return x, alpha
     else:
         return x
-    
-def anisotropic_diffusion(y, m, gamma, g=None, return_conductivity=False, scheme='explicit'):
-    if scheme=='implicit':
-        return_conductivity=False
-    x = y
-    if (len(x.shape)==3):
-        C=3
-    else:
-        C=1
-    if g==None:
-        g= lambda u: 10 / (10 + 255*255*u/(np.sqrt(C)))
-    nusig = kernel('gaussian', tau=0.2, s1=1, s2=1)
-    for k in range(m):
-        if scheme=='explicit':
-            if return_conductivity:
-                x, alpha= anisotropic_step(x, x, gamma, g, nusig, return_conductivity=return_conductivity)
+def tensorize(v, nurho):
+    n1, n2, p = v.shape[:3]
+    M = np.zeros((n1, n2, p, p))
+    v_pq = np.zeros((n1,n2))
+    for k in range(p):
+        for l in range(p):
+            if np.ndim(v) == 3:
+                vv_pq = np.multiply(v[:,:,k],v[:,:,l])
             else:
-                x = anisotropic_step(x, x, gamma, g, nusig, return_conductivity=return_conductivity)
-        elif scheme=='implicit':
-            x= cg(lambda z: anisotropic_step(x, z, -gamma, g, nusig, return_conductivity=return_conductivity), x)
-    if return_conductivity:
-        return x, alpha
+                import pdb
+#                 pdb.set_trace()
+                vv_pq = np.sum(np.multiply(v[:,:,k,:],v[:,:,l,:]),axis=-1)
+            #remember to sum across the three channels for the colour images
+            M[:,:,k,l] = convolve(x = vv_pq,nu = nurho,boundary = 'periodical') 
+    return M
+
+def matrix_spectral_func(M, g):
+    a = np.zeros_like(M)
+    #find the eigenvalues of M along the last two dimension
+    u,s,vh = np.linalg.svd(M, compute_uv=True)
+    
+    
+    A = g(s)
+    
+    T = u @ (A[..., None] * vh)
+    
+    return T
+def truly_anisotropic_step(x, z, gamma, g, nusig, nurho,
+return_conductivity=False):
+    
+    
+    #step 1
+    v0 = grad(convolve(x = x,nu = nusig,boundary = 'periodical'))
+    #step 2
+    M = tensorize(v0,nurho)
+
+    n1,n2, p = M.shape[:3]
+    #step 3
+    T = matrix_spectral_func(M,g)
+    #step 4
+
+    v = np.zeros((n1,n2,p))
+    if np.ndim(x) == 3:
+        x0 = grad(x)
+        v = (np.matmul(T,x0))
     else:
-        return x
+        x0 = grad(x).reshape(n1,n2,p,1)
+        v = (np.matmul(T,x0)).reshape(n1,n2,p)
+    #finallly
+    x =z + gamma*div(v)
+
+    if return_conductivity:
+        return x, T
+    else:
+        return x    
+    
+def anisotropic_diffusion(y, m, gamma, g=None, return_conductivity=False, scheme='explicit',variant =None):
+    if variant is 'truly':
+        if scheme=='implicit':
+        return_conductivity=False
+        x = y
+        if len(y.shape)==3:
+            C=3
+        else:
+            C=1
+        if g==None:
+            g= lambda u: 10 / (10 + 255*255*u/(np.sqrt(C)))
+        nusig = kernel('gaussian', tau=0.2, s1=1, s2=1)
+        nurho = kernel(name ='gaussian',tau = 0.5, s1=1,s2=1)
+
+        for k in range(m):
+            if scheme=='explicit':
+
+                x, alpha= truly_anisotropic_step(x, x, gamma, g, nusig,nurho, return_conductivity=return_conductivity)
+            elif scheme=='implicit':
+                
+                x = cg(lambda z: truly_anisotropic_step(x, z, gamma, g, nusig,nurho, return_conductivity=return_conductivity), x)
+        if return_conductivity:
+            return x, alpha
+        else:
+            return x
+    if variant is None:
+               
+        if scheme=='implicit':
+            return_conductivity=False
+        x = y
+        if (len(x.shape)==3):
+            C=3
+        else:
+            C=1
+        if g==None:
+            g= lambda u: 10 / (10 + 255*255*u/(np.sqrt(C)))
+        nusig = kernel('gaussian', tau=0.2, s1=1, s2=1)
+        for k in range(m):
+            if scheme=='explicit':
+                if return_conductivity:
+                    x, alpha= anisotropic_step(x, x, gamma, g, nusig, return_conductivity=return_conductivity)
+                else:
+                    x = anisotropic_step(x, x, gamma, g, nusig, return_conductivity=return_conductivity)
+            elif scheme=='implicit':
+                import  pdb
+                pdb.set_trace()
+                x= cg(lambda z: anisotropic_step(x, z, -gamma, g, nusig, return_conductivity=return_conductivity), x)
+        if return_conductivity:
+            return x, alpha
+        else:
+            return x
+ 
